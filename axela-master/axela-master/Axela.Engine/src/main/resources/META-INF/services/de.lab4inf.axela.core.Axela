@@ -1,0 +1,4 @@
+##
+## ServiceLoader configuration for a JDK less than 1.9 without module-info
+##
+de.lab4inf.axela.engine.AxelaEngine

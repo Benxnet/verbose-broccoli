@@ -1,0 +1,5 @@
+include 'Axela.Core'
+include 'Axela.Client'
+include 'Axela.Engine'
+include 'Axela.Math'
+include 'Axela.Script'

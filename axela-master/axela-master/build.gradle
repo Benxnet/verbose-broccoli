@@ -1,0 +1,120 @@
+plugins {
+    id 'java-library'
+    id 'com.intershop.gradle.javacc' version '4.0.0'
+}
+
+allprojects {
+        apply plugin: 'java'
+        apply plugin: 'jacoco'
+        apply plugin: 'java-library'
+    	group = 'de.lab4inf.axela'
+
+        repositories {
+            jcenter()
+        }
+
+        dependencies {
+            testImplementation 'org.junit.jupiter:junit-jupiter-api:5.6.2'
+            testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
+            testRuntimeOnly 'org.junit.platform:junit-platform-commons:1.7.0'
+        }
+        
+        test {
+    		useJUnitPlatform()
+				testLogging {
+					events "passed", "skipped", "failed"
+				}
+		}
+}
+
+project('Axela.Engine') {
+        dependencies {
+                implementation project(':Axela.Core')
+        }
+}
+
+project('Axela.Math') {
+        dependencies {
+                implementation project(':Axela.Core')
+                implementation project(':Axela.Engine')
+        }
+}
+
+project('Axela.Script') {
+	apply plugin: 'com.intershop.gradle.javacc'
+	javacc {
+		// configuration container for all javacc and jjtree configurations
+		configs {
+			javaCCVersion = '7.0.10'
+			main {
+				outputDir = file('build/generated-src/javacc')
+				jjtree {
+					inputFile = file('src/main/java/de/lab4inf/axela/script/javacc/JavaccParser.jjt')
+					packageName = 'de.lab4inf.axela.script.javacc'
+				}
+			}
+		}
+	}
+	
+    dependencies {
+	   api('net.java.dev.javacc:javacc:7.0.10')
+       implementation project(':Axela.Core')
+       implementation project(':Axela.Engine')
+       implementation project(':Axela.Math')
+    }
+}
+
+project('Axela.Client') {
+    dependencies {
+       implementation project(':Axela.Core')
+       implementation project(':Axela.Engine')
+       implementation project(':Axela.Math')
+       implementation project(':Axela.Script')
+    }
+}
+
+subprojects {
+    plugins.withType(JavaPlugin).configureEach {
+        java {
+            sourceCompatibility = JavaVersion.VERSION_11
+            targetCompatibility = JavaVersion.VERSION_11
+            modularity.inferModulePath = true;
+        }
+    }
+}
+
+// task to gather code coverage from multiple subprojects
+// NOTE: the `JacocoReport` tasks do *not* depend on the `test` task by default. Meaning you have to ensure
+// that `test` (or other tasks generating code coverage) run before generating the report.
+// You can achieve this by calling the `test` lifecycle task manually
+// $ ./gradlew test codeCoverageReport
+tasks.register("codeCoverageReport", JacocoReport) {
+    // If a subproject applies the 'jacoco' plugin, add the result it to the report
+    subprojects { subproject ->
+        subproject.plugins.withType(JacocoPlugin).configureEach {
+            subproject.tasks.matching({ t -> t.extensions.findByType(JacocoTaskExtension) }).configureEach { testTask ->
+                sourceSets subproject.sourceSets.main
+                executionData(testTask)
+            }
+
+            // To automatically run `test` every time `./gradlew codeCoverageReport` is called,
+            // you may want to set up a task dependency between them as shown below.
+            // Note that this requires the `test` tasks to be resolved eagerly (see `forEach`) which
+            // may have a negative effect on the configuration time of your build.
+            subproject.tasks.matching({ t -> t.extensions.findByType(JacocoTaskExtension) }).forEach {
+                rootProject.tasks.codeCoverageReport.dependsOn(it)
+            }
+        }
+    }
+
+    // enable the different report types (html, xml, csv)
+    reports {
+        // xml is usually used to integrate code coverage with
+        // other tools like SonarQube, Coveralls or Codecov
+        xml.enabled true
+
+        // HTML reports can be used to see code coverage
+        // without any external tools
+        html.enabled true
+    }
+}

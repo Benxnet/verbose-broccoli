@@ -1,0 +1,305 @@
+options {
+  //JDK_VERSION = "1.11";
+  //FORCE_LA_CHECK=true;
+  MULTI=true;
+  STATIC=false;
+  VISITOR=false;
+  NODE_DEFAULT_VOID=false;
+}
+PARSER_BEGIN(JavaccParser)
+/*
+ * Project: Axela.Script
+ *
+ * Copyright (c) 2020,  Prof. Dr. Nikolaus Wulff
+ * University of Applied Sciences, Muenster, Germany
+ * Lab for computer sciences (Lab4Inf).
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+package de.lab4inf.axela.script.javacc;
+import de.lab4inf.axela.script.AxelaParser;
+import de.lab4inf.axela.script.Node;
+import de.lab4inf.axela.math.ast.*;
+import java.io.*;
+import java.util.*;
+import static java.lang.String.format;
+/**
+ * The JavaCC based expression part of the Axela ScriptParser.
+ *
+ * TODO: vector and matrix nodes are not connected (yet)...
+ * @author nwulff
+ * @since 29.11.2020
+ *
+ */
+public class JavaccParser extends AxelaParser {
+	@Override
+	protected Node<?> expression(String stm) {
+		//info("expression %s", stm);
+		ReInit(new StringReader(stm));
+		Node<?> ret = null;
+		try {
+			ret = expr();
+		} catch (ParseException e) {
+			//e.printStackTrace();
+			throw new IllegalArgumentException(stm);
+		}
+		return ret;
+	}
+
+	protected Node<?> assignment(String stm) {
+		info("assignment %s", stm);
+		ReInit(new StringReader(stm));
+		Node<?> ret = null;
+		try {
+			ret = assign();
+		} catch (ParseException e) {
+			//e.printStackTrace();
+			throw new IllegalArgumentException(stm);
+		}
+		return ret;
+    }  
+}
+
+PARSER_END(JavaccParser)
+
+
+SKIP :
+{
+  " "
+| "\t"
+| "\n"
+| "\r"
+| <"//" (~["\n","\r"])* ("\n"|"\r"|"\r\n")>
+| <"/*" (~["*"])* "*" (~["/"] (~["*"])* "*")* "/">
+}
+
+TOKEN : /* LITERALS */
+{  
+  < INTEGER_LITERAL:  (
+        <DECIMAL_LITERAL> (["l","L"])?
+      | <HEX_LITERAL> (["l","L"])?
+      | <OCTAL_LITERAL> (["l","L"])?
+    )
+  >
+|
+  < #DECIMAL_LITERAL: ["1"-"9"] (["0"-"9"])* >
+|
+  < #HEX_LITERAL: "0" ["x","X"] (["0"-"9","a"-"f","A"-"F"])+ >
+|
+  < #OCTAL_LITERAL: "0" (["0"-"7"])* >
+}
+
+TOKEN : /* FLOATING POINT */
+{
+  < FLOATING_LITERAL:  (<DIGIT>)* "." (<DIGIT >)* >
+}
+
+TOKEN : /* IDENTIFIERS */
+{
+  < IDENTIFIER: <LETTER> (<LETTER>|<DIGIT>)* >
+|
+  < #LETTER: ["_","a"-"z","A"-"Z"] >
+|
+  < #DIGIT: ["0"-"9"] >
+}
+
+TOKEN : {  < SEMI  : ";" > }  
+TOKEN : {  < PLUS  : "+" > }  
+TOKEN : {  < MINUS : "-" > }  
+TOKEN : {  < TIMES : "*" > }  
+TOKEN : {  < DIVIDE: "/" > }  
+TOKEN : {  < POWER : "^" | "**" > }  
+TOKEN : {  < LPARA : "(" > }  
+TOKEN : {  < RPARA : ")" > }  
+/**
+ * assignment of variables to
+ * expression, matrix or vector.
+ */
+protected AssignNode assign(): {
+  AssignNode n = null;
+  Node<?> id = null, ex;
+  }
+{
+  ( id=id() "=") (LOOKAHEAD(2) ex=matrix() | ex=vector() |  ex=expr())  
+  {
+    n = new AssignNode(id,ex);
+    return n;
+  }
+}
+
+/** Construct a matrix node. */
+protected MatrixNode matrix(): {
+  MatrixNode n;
+  VectorNode ex;
+  List<VectorNode> a = new ArrayList<VectorNode>();
+}
+{
+  "{" ex=vector() { a.add(ex); } ("," ex=vector() { a.add(ex); })* "}" 
+
+	{
+	  double[][] m = new double[a.size()][];
+	  for(int j=0;j<m.length;j++) {
+	    m[j] = a.get(j).getPayload();
+	  }
+      n = new MatrixNode("m",m);
+	  return n;
+	}
+}
+/** Construct a vector node. */
+protected VectorNode vector(): {
+  VectorNode n;
+  Node<? > ex;
+  List<Node<?>> a = new ArrayList<Node<?>>();
+}
+{
+  "{" ex=expr() { a.add(ex); } ("," ex=expr() { a.add(ex); })* "}" 
+
+	{
+	  double[] d = new double[a.size()];
+	  for(int j=0;j<d.length;j++) {
+	    d[j] = asDouble(a.get(j));
+	  }
+      n = new VectorNode("v",d);
+	  return n;
+	}
+}
+
+
+/** additive expression. */
+protected Node<?> expr(): {
+  Node<?> n=null, m = null;
+  Token op=null;}
+{
+  ( n = term()
+      (   (op=< PLUS > |op=< MINUS >) m=term()
+          {
+		   	  if("+".equals(op.image)) {
+		   	    n = new PlusNode(n,m);
+		   	  } else {
+		   	    n = new MinusNode(n,m);
+		      }
+          }
+      )* 
+  ) 
+   {
+	return n;
+   }
+}
+
+/** multiplicative expression. */
+protected Node<?> term(): {
+  Node<?> n=null, m = null;
+  Token op=null;
+}
+{
+  ( n= atom()
+      ( (op=< TIMES > | op=< DIVIDE >) m=atom()
+      {
+		   	  if("*".equals(op.image)) {
+		   	    n = new TimesNode(n,m);
+		   	  } else {
+		   	    n = new DivideNode(n,m);
+		      }
+        }
+      )*
+  )
+   { return n; }
+}
+/** power expression. */
+protected Node<?> atom(): {
+  Node<?> n=null, p, q, m = null;
+  Stack<Node<?>> stack = new Stack<Node<?>>();
+}
+{
+  (
+    n=unary() ( LOOKAHEAD(2) < POWER > m = atom()
+               { stack.add(m); }
+              )*
+    
+     { if(stack.size() >0) {
+          p = stack.pop(); 
+       while(stack.size() >0) {
+          q = stack.pop();
+          p = new PowerNode(q,p);
+       }
+       n = new PowerNode(n,p);
+     }
+     return n; }
+  ) 
+}
+
+/** unary (signed) atomar expression. */
+protected Node<?> unary() : {
+  Node<?> n = null;
+  Token sign=null;
+}
+{
+  (   (sign=< PLUS >|sign=< MINUS >)?
+                ( 
+            < LPARA > n=expr() < RPARA > 
+         | n=floating()
+         | n=integer()
+         | (LOOKAHEAD(2) n=fctCall() | n=id() )
+         
+       )
+  )
+   {
+    if(null!=sign && "-".equals(sign.image)) {
+       n = negative(n);
+    }
+    return n;
+   }
+}
+/** a function call  */
+protected Node<?> fctCall():
+{ Node n = null;
+  Node<?> id;
+  List<Node<?>> args = new ArrayList<Node<?>>();
+}
+{
+  (id=id() < LPARA > n=expr()   { args.add(n); }
+            ("," n=expr() { args.add(n); } 
+            )*
+           < RPARA >
+  )
+  {
+    n = new FunctionCall(id.toString(),args);
+    return n;
+  }
+}
+
+/** an identifier. */
+protected Node<?> id(): {Token t;} {
+  t=<IDENTIFIER>
+  {
+	return n(t.image);
+  }
+}
+
+/** an integer number. */
+protected Node<?> integer()  : { Node<?> n = null; Token t =null;} {
+  t=<INTEGER_LITERAL>
+  {
+	return n(Long.valueOf(t.image));
+  }
+}
+
+/** a floating number. */
+protected Node<?> floating(): {Node<?> n = null;  Token t =null;} {
+  t=<FLOATING_LITERAL>
+  {
+	return n(Double.valueOf(t.image));
+  }
+}
+
